@@ -626,4 +626,7 @@ And the source and the destination containers:
 
 ![new_containers](https://github.com/user-attachments/assets/04ce7c92-4359-4a90-b78b-fc826ff086d0)
 
+I also uploaded the source files:
+
+![Uploading source_files.png…]()
 
