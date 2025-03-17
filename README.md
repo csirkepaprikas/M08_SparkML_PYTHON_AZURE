@@ -614,5 +614,5 @@ Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
 
 Outputs:
 
-resource_group_name = "rg-dev-westeurope-sm"
+resource_group_name = "r"
 ```
