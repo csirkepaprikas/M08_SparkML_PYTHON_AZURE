@@ -612,7 +612,18 @@ Releasing state lock. This may take a few moments...
 
 Apply complete! Resources: 5 added, 0 changed, 0 destroyed.
 
+
 Outputs:
 
 resource_group_name = "r"
 ```
+
+Here you can see the newly created resource groups in the West Europe location:
+
+![new_RGs](https://github.com/user-attachments/assets/32252426-f2ab-4b00-aa87-e5f563ed3f66)
+
+And the source and the destination containers:
+
+![new_containers](https://github.com/user-attachments/assets/04ce7c92-4359-4a90-b78b-fc826ff086d0)
+
+
