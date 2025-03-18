@@ -630,3 +630,15 @@ I also uploaded the source files:
 
 ![Uploading source_files.png…]()
 
+Then I started to work on the notebook related tasks. First I created the tables from the source files: winequality-red.csv and winequality-white.csv:
+
+![table_create_red](https://github.com/user-attachments/assets/41e5cf39-d5c9-419d-9a37-20e76e8a5a11)
+![table_create_white](https://github.com/user-attachments/assets/8e18e8b9-b383-4b1e-bd1e-5fa7b7df6d72)
+
+Here you can see the created tables:
+
+![created_tables](https://github.com/user-attachments/assets/6f105009-e518-4fe8-bf3a-bf5b5611d10b)
+
+
+
+
