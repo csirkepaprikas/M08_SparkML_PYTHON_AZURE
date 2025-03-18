@@ -637,7 +637,8 @@ Then I started to work on the notebook related tasks. First I created the tables
 
 Here you can see the created tables:
 
-![created_tables](https://github.com/user-attachments/assets/6f105009-e518-4fe8-bf3a-bf5b5611d10b)
+![created_tables](https://github.com/user-attachments/assets/4b2ce6e0-4d49-4cf2-8270-7439748513f5)
+
 
 
 
