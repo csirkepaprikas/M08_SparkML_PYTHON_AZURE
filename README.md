@@ -639,6 +639,9 @@ Here you can see the created tables:
 
 ![created_tables](https://github.com/user-attachments/assets/4b2ce6e0-4d49-4cf2-8270-7439748513f5)
 
+Also uploaded the files in the DBFS:
+
+![dfbs_file_save](https://github.com/user-attachments/assets/5907abf8-ead2-4d63-ad65-a16d5864a1b3)
 
 
 
