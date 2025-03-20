@@ -643,6 +643,65 @@ Also uploaded the files in the DBFS:
 
 ![dfbs_file_save](https://github.com/user-attachments/assets/5907abf8-ead2-4d63-ad65-a16d5864a1b3)
 
+I reviewd the whole ML notebook via articles, tutorials and AI then I created a new notebook where I devided the original to smaller parts.
+The first is the ###Seaborn:
+```python
+# COMMAND ----------
 
+import pandas as pd
 
+white_wine = pd.read_csv("/databricks-datasets/wine-quality/winequality-white.csv", sep=";")
+red_wine = pd.read_csv("/databricks-datasets/wine-quality/winequality-red.csv", sep=";")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Merge the two DataFrames into a single dataset, with a new binary feature "is_red" that indicates whether the wine is red or white.
+
+# COMMAND ----------
+
+red_wine['is_red'] = 1
+white_wine['is_red'] = 0
+
+data = pd.concat([red_wine, white_wine], axis=0)
+
+# Remove spaces from column names
+data.rename(columns=lambda x: x.replace(' ', '_'), inplace=True)
+
+# COMMAND ----------
+
+data.head()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Visualize data
+# MAGIC
+# MAGIC Before training a model, explore the dataset using Seaborn and Matplotlib.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Plot a histogram of the dependent variable, quality.
+
+# COMMAND ----------
+
+import seaborn as sns
+sns.displot(data.quality, kde=False)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Looks like quality scores are normally distributed between 3 and 9. 
+# MAGIC
+# MAGIC Define a wine as high quality if it has quality >= 7.
+
+# COMMAND ----------
+
+high_quality = (data.quality >= 7).astype(int)
+data.quality = high_quality
+
+# MAGIC %md
+# MAGIC Box plots are useful for identifying correlations between features and a binary label. Create box plots for each feature to compare high-quality and low-quality wines. Significant differences in the box plots indicate good predictors of quality.
+```
 
