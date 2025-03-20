@@ -643,8 +643,9 @@ Also uploaded the files in the DBFS:
 
 ![dfbs_file_save](https://github.com/user-attachments/assets/5907abf8-ead2-4d63-ad65-a16d5864a1b3)
 
-I reviewd the whole ML notebook via articles, tutorials and AI then I created a new notebook where I devided the original to smaller parts.
-The first is the ###Seaborn:
+I reviewd the whole ML notebook via articles, tutorials and AI. The notebook ingest the data from two datasets, which are related to red and white variants of the Portuguese "Vinho Verde" wine.
+Then I created a new notebook where I devided the original to smaller parts.
+The first is the Seaborn:
 ```python
 # COMMAND ----------
 
@@ -704,4 +705,49 @@ data.quality = high_quality
 # MAGIC %md
 # MAGIC Box plots are useful for identifying correlations between features and a binary label. Create box plots for each feature to compare high-quality and low-quality wines. Significant differences in the box plots indicate good predictors of quality.
 ```
+This script loads two wine quality datasets (red and white wine) from Databricks' sample datasets. It merges them into a single DataFrame while adding a new binary feature (is_red) to distinguish between red and white wines. The script then cleans column names by replacing spaces with underscores. Finally, it visualizes the distribution of the quality variable and converts it into a binary classification: wines with a quality score of 7 or higher are labeled as high quality (1), while others are labeled as low quality (0).
+
+![1_st_visual](https://github.com/user-attachments/assets/35a911ab-aea2-4384-a6a0-0470242ce039)
+
+The second cell is thematplotlib part of visualization:
+```python
+import matplotlib.pyplot as plt
+
+dims = (3, 4)
+
+f, axes = plt.subplots(dims[0], dims[1], figsize=(25, 15))
+axis_i, axis_j = 0, 0
+for col in data.columns:
+  if col == 'is_red' or col == 'quality':
+    continue # Box plots cannot be used on indicator variables
+  sns.boxplot(x=high_quality, y=data[col], ax=axes[axis_i, axis_j])
+  axis_j += 1
+  if axis_j == dims[1]:
+    axis_i += 1
+    axis_j = 0
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC In the above box plots, a few variables stand out as good univariate predictors of quality. 
+# MAGIC
+# MAGIC - In the alcohol box plot, the median alcohol content of high quality wines is greater than even the 75th quantile of low quality wines. High alcohol content is correlated with quality.
+# MAGIC - In the density box plot, low quality wines have a greater density than high quality wines. Density is inversely correlated with quality.
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Preprocess data
+# MAGIC Before training a model, check for missing values and split the data into training and validation sets.
+
+# COMMAND ----------
+
+data.isna().any()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC There are no missing values.
+```
+
 
