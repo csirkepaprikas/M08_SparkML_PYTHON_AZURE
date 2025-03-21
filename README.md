@@ -961,5 +961,9 @@ Below you can see the artifacts, which were created during the model run:
 
 ![3_artif](https://github.com/user-attachments/assets/4a2fd901-d76d-4ad2-a949-9c9af62fb51c)
 
+The model's storing process to the Model Registry was successful the transition of the model to the Production stage, too. The later ensures, the model is ready for real-world, production use with live data.
+
+![3_reg](https://github.com/user-attachments/assets/2debd36d-9d50-4a16-ac90-08d689838552)
+
 
 
