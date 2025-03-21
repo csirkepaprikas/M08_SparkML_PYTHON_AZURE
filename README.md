@@ -709,6 +709,8 @@ This script loads two wine quality datasets (red and white wine) from Databricks
 
 ![1_st_visual](https://github.com/user-attachments/assets/35a911ab-aea2-4384-a6a0-0470242ce039)
 
+We can observe a normal ditrubition (Gaussian), where the highest data count is the 6, which can be considered as average quality.
+
 The second cell is thematplotlib part of visualization:
 ```python
 import matplotlib.pyplot as plt
@@ -749,5 +751,25 @@ data.isna().any()
 # MAGIC %md
 # MAGIC There are no missing values.
 ```
+![2_görbék](https://github.com/user-attachments/assets/a3e82fe6-dce0-48f5-b7f8-384efae67155)
 
+Above are the boxplots, as the comments suggested the median alcohol content of high quality wines is greater than even the 75th quantile of low quality wines. High alcohol content is correlated with quality. In the density box plot, low quality wines have a greater density than high quality wines. Density is inversely correlated with quality. Also, the pH values distribution is similar, but by the high quality wines' values are a litle bit higher. This assumption also valid regarding the sulphates. But as for the chlorides, the quality wines have slightly smaller values.
+
+As the comment says the check for missing values resulted as false for all the collumns:
+
+```python
+fixed_acidity           False
+volatile_acidity        False
+citric_acid             False
+residual_sugar          False
+chlorides               False
+free_sulfur_dioxide     False
+total_sulfur_dioxide    False
+density                 False
+pH                      False
+sulphates               False
+alcohol                 False
+quality                 False
+is_red                  False
+```
 
