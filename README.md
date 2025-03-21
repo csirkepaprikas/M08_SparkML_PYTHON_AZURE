@@ -772,4 +772,194 @@ alcohol                 False
 quality                 False
 is_red                  False
 ```
+The third cell is the Running a parallel hyperparameter sweep to train machine learning:
+```python
+from sklearn.model_selection import train_test_split
+
+X = data.drop(["quality"], axis=1)
+y = data.quality
+
+# Split out the training data
+X_train, X_rem, y_train, y_rem = train_test_split(X, y, train_size=0.6, random_state=123)
+
+# Split the remaining data equally into validation and test
+X_val, X_test, y_val, y_test = train_test_split(X_rem, y_rem, test_size=0.5, random_state=123)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Train a baseline model
+# MAGIC This task seems well suited to a random forest classifier, since the output is binary and there may be interactions between multiple variables.
+# MAGIC
+# MAGIC Build a simple classifier using scikit-learn and use MLflow to keep track of the model's accuracy, and to save the model for later use.
+
+# COMMAND ----------
+
+import mlflow
+import mlflow.pyfunc
+import mlflow.sklearn
+import numpy as np
+import sklearn
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import roc_auc_score
+from mlflow.models.signature import infer_signature
+from mlflow.utils.environment import _mlflow_conda_env
+import cloudpickle
+import time
+
+# The predict method of sklearn's RandomForestClassifier returns a binary classification (0 or 1). 
+# The following code creates a wrapper function, SklearnModelWrapper, that uses 
+# the predict_proba method to return the probability that the observation belongs to each class. 
+
+class SklearnModelWrapper(mlflow.pyfunc.PythonModel):
+  def __init__(self, model):
+    self.model = model
+    
+  def predict(self, context, model_input):
+    return self.model.predict_proba(model_input)[:,1]
+
+# mlflow.start_run creates a new MLflow run to track the performance of this model. 
+# Within the context, you call mlflow.log_param to keep track of the parameters used, and
+# mlflow.log_metric to record metrics like accuracy.
+with mlflow.start_run(run_name='untuned_random_forest'):
+  n_estimators = 10
+  model = RandomForestClassifier(n_estimators=n_estimators, random_state=np.random.RandomState(123))
+  model.fit(X_train, y_train)
+
+  # predict_proba returns [prob_negative, prob_positive], so slice the output with [:, 1]
+  predictions_test = model.predict_proba(X_test)[:,1]
+  auc_score = roc_auc_score(y_test, predictions_test)
+  mlflow.log_param('n_estimators', n_estimators)
+  # Use the area under the ROC curve as a metric.
+  mlflow.log_metric('auc', auc_score)
+  wrappedModel = SklearnModelWrapper(model)
+  # Log the model with a signature that defines the schema of the model's inputs and outputs. 
+  # When the model is deployed, this signature will be used to validate inputs.
+  signature = infer_signature(X_train, wrappedModel.predict(None, X_train))
+  
+  # MLflow contains utilities to create a conda environment used to serve models.
+  # The necessary dependencies are added to a conda.yaml file which is logged along with the model.
+  conda_env =  _mlflow_conda_env(
+        additional_conda_deps=None,
+        additional_pip_deps=["cloudpickle=={}".format(cloudpickle.__version__), "scikit-learn=={}".format(sklearn.__version__)],
+        additional_conda_channels=None,
+    )
+  mlflow.pyfunc.log_model("random_forest_model", python_model=wrappedModel, conda_env=conda_env, signature=signature)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Review the learned feature importances output by the model. As illustrated by the previous boxplots, alcohol and density are important in predicting quality.
+
+# COMMAND ----------
+
+feature_importances = pd.DataFrame(model.feature_importances_, index=X_train.columns.tolist(), columns=['importance'])
+feature_importances.sort_values('importance', ascending=False)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC You logged the Area Under the ROC Curve (AUC) to MLflow. Click the Experiment icon <img src="https://docs.databricks.com/_static/images/icons/experiment.png"/> in the right sidebar to display the Experiment Runs sidebar. 
+# MAGIC
+# MAGIC The model achieved an AUC of 0.854.
+# MAGIC
+# MAGIC A random classifier would have an AUC of 0.5, and higher AUC values are better. For more information, see [Receiver Operating Characteristic Curve](https://en.wikipedia.org/wiki/Receiver_operating_characteristic#Area_under_the_curve).
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Register the model in MLflow Model Registry
+# MAGIC
+# MAGIC By registering this model in Model Registry, you can easily reference the model from anywhere within Databricks.
+# MAGIC
+# MAGIC The following section shows how to do this programmatically.
+
+# COMMAND ----------
+
+run_id = mlflow.search_runs(filter_string='tags.mlflow.runName = "untuned_random_forest"').iloc[0].run_id
+
+# COMMAND ----------
+
+# If you see the error "PERMISSION_DENIED: User does not have any permission level assigned to the registered model", 
+# the cause may be that a model already exists with the name "wine_quality". Try using a different name.
+model_name = "wine_quality"
+model_version = mlflow.register_model(f"runs:/{run_id}/random_forest_model", model_name)
+
+# Registering the model takes a few seconds, so add a small delay
+time.sleep(15)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC You should now see the model in the Models page. To display the Models page, click **Models** in the left sidebar. 
+# MAGIC
+# MAGIC Next, transition this model to production and load it into this notebook from Model Registry.
+
+# COMMAND ----------
+
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+client.transition_model_version_stage(
+  name=model_name,
+  version=model_version.version,
+  stage="Production",
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC The Models page now shows the model version in stage "Production".
+# MAGIC
+# MAGIC You can now refer to the model using the path "models:/wine_quality/production".
+
+# COMMAND ----------
+
+model = mlflow.pyfunc.load_model(f"models:/{model_name}/production")
+
+# Sanity-check: This should match the AUC logged by MLflow
+print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
+```
+The output of the cell was:
+
+```python
+/databricks/python/lib/python3.11/site-packages/mlflow/types/utils.py:393: UserWarning: Hint: Inferred schema contains integer column(s). Integer columns in Python cannot represent missing values. If your input data contains missing values at inference time, it will be encoded as floats and will cause a schema enforcement error. The best way to avoid this problem is to infer the model schema based on a realistic data sample (training dataset) that includes missing values. Alternatively, you can declare integer columns as doubles (float64) whenever these columns may have missing values. See `Handling Integers With Missing Values <https://www.mlflow.org/docs/latest/models.html#handling-integers-with-missing-values>`_ for more details.
+  warnings.warn(
+/databricks/python/lib/python3.11/site-packages/_distutils_hack/__init__.py:33: UserWarning: Setuptools is replacing distutils.
+  warnings.warn("Setuptools is replacing distutils.")
+Successfully registered model 'wine_quality'.
+2025/03/21 15:41:28 INFO mlflow.store.model_registry.abstract_store: Waiting up to 300 seconds for model version to finish creation. Model name: wine_quality, version 1
+Created version '1' of model 'wine_quality'.
+/root/.ipykernel/1407/command-4055028952959938-4115726697:127: FutureWarning: ``mlflow.tracking.client.MlflowClient.transition_model_version_stage`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  client.transition_model_version_stage(
+/databricks/python/lib/python3.11/site-packages/mlflow/store/artifact/utils/models.py:32: FutureWarning: ``mlflow.tracking.client.MlflowClient.get_latest_versions`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  latest = client.get_latest_versions(name, None if stage is None else [stage])
+AUC: 0.8540300975814177
+```
+Some highlights to the well-detailed comments:
+
+I trained a Random Forest Classifier using scikit-learn and tracked the experiment with MLflow. The dataset was split into training (60%), validation (20%), and test (20%) sets.
+A Random Forest model with n_estimators=10 was trained on the dataset. The AUC (Area Under the ROC Curve) was calculated on the test set, achieving 0.854.
+The model was logged in MLflow, along with its parameters, metrics, and feature importances.
+The model was registered in the MLflow Model Registry under the name "wine_quality".
+The registered model was promoted to the Production stage.
+Finally, the production model was loaded and tested, confirming that the AUC remained consistent as you see the last row of the output.
+
+Below are the list of feature importances, which was learned by the model. It shows how the particular input variables(features) effects the decision of the model regarding the forecast od the wines.
+
+![3_importance](https://github.com/user-attachments/assets/53230fd4-a1c1-4fde-baf3-6535571aaa79)
+
+Below you can see the overview of the wine_quality model's run:
+
+![3_exp_1](https://github.com/user-attachments/assets/a2293d32-84a5-4a35-a588-b29a95b4a133)
+
+Here is the Area Under the ROC Curve (AUC) in the Model Metrics tab, which is a time-series plot on the X-axis there are the model runs, on the Y-axis the AUC level, what achieved. Because I had only one run it's a horizontal line.
+
+![3_model_metr](https://github.com/user-attachments/assets/4e3071a0-45a1-4a74-906b-3cf9976772aa)
+
+Below you can see the artifacts, which were created during the model run:
+
+![3_artif](https://github.com/user-attachments/assets/4a2fd901-d76d-4ad2-a949-9c9af62fb51c)
+
+
 
