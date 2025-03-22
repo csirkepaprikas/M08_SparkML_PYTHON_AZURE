@@ -1121,6 +1121,113 @@ print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
 # MAGIC The new version achieved a better score on the test set.
 ```
 
+The result of the run:
+```python
+AUC of Best Run: 0.8995243299826049
+Registered model 'wine_quality' already exists. Creating a new version of this model...
+2025/03/22 11:25:53 INFO mlflow.store.model_registry.abstract_store: Waiting up to 300 seconds for model version to finish creation. Model name: wine_quality, version 4
+Created version '4' of model 'wine_quality'.
+/root/.ipykernel/1656/command-1820034450416633-3889142388:28: FutureWarning: ``mlflow.tracking.client.MlflowClient.transition_model_version_stage`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  client.transition_model_version_stage(
+/root/.ipykernel/1656/command-1820034450416633-3889142388:35: FutureWarning: ``mlflow.tracking.client.MlflowClient.transition_model_version_stage`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  client.transition_model_version_stage(
+/databricks/python/lib/python3.11/site-packages/mlflow/store/artifact/utils/models.py:32: FutureWarning: ``mlflow.tracking.client.MlflowClient.get_latest_versions`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  latest = client.get_latest_versions(name, None if stage is None else [stage])
+Downloading artifacts: 100%
+ 9/9 [00:00<00:00, 21.83it/s]
+```
+
+Here are the models, and the new version 4 with the Production stage:
+
+![5_models](https://github.com/user-attachments/assets/a6ae8cb0-3501-423f-b9a2-4c316b25566a)
+
+Then I headed to the sixth cell: Applied the registered model to another dataset using a Spark UDF. This code is used to run batch inference on a new set of data, applying a pre-trained machine learning model to predict outcomes for each row in a dataset. I am simulated new data, deleted existing data if existed in the destination directory. Then loaded model into the Spark UDF, then read the new data from the delta table and applied the model to the new data, finally displayed it.
+Here is the code:
+```python
+spark_df = spark.createDataFrame(X_train)
+# Replace <username> with your username before running this cell.
+table_path = "dbfs:/mikesb/delta/wine_data"
+# Delete the contents of this path in case this cell has already been run
+dbutils.fs.rm(table_path, True)
+spark_df.write.format("delta").save(table_path)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Load the model into a Spark UDF, so it can be applied to the Delta table.
+
+# COMMAND ----------
+
+# MAGIC %pip install flask
+
+# COMMAND ----------
+
+import mlflow.pyfunc
+
+apply_model_udf = mlflow.pyfunc.spark_udf(spark, f"models:/{model_name}/production")
+
+# COMMAND ----------
+
+# Read the "new data" from Delta
+new_data = spark.read.format("delta").load(table_path)
+
+# COMMAND ----------
+
+display(new_data)
+
+# COMMAND ----------
+
+from pyspark.sql.functions import struct
+
+# Apply the model to the new data
+udf_inputs = struct(*(X_train.columns.tolist()))
+
+new_data = new_data.withColumn(
+  "prediction",
+  apply_model_udf(udf_inputs)
+)
+
+# COMMAND ----------
+
+# Each row now has an associated prediction. Note that the xgboost function does not output probabilities by default, so the predictions are not limited to the range [0, 1].
+display(new_data)
+```
+
+And the results:
+```python
+/databricks/python/lib/python3.11/site-packages/mlflow/store/artifact/utils/models.py:32: FutureWarning: ``mlflow.tracking.client.MlflowClient.get_latest_versions`` is deprecated since 2.9.0. Model registry stages will be removed in a future major release. To learn more about the deprecation of model registry stages, see our migration guide here: https://mlflow.org/docs/2.11.4/model-registry.html#migrating-from-stages
+  latest = client.get_latest_versions(name, None if stage is None else [stage])
+
+
+2025/03/22 12:05:33 WARNING mlflow.pyfunc: Calling `spark_udf()` with `env_manager="local"` does not recreate the same environment that was used during training, which may lead to errors or inaccurate predictions. We recommend specifying `env_manager="conda"`, which automatically recreates the environment that was used to train the model and performs inference in the recreated environment.
+
+2025/03/22 12:05:33 INFO mlflow.models.flavor_backend_registry: Selected backend for flavor 'python_function'
+```
+Here you can see the table's before and after state, by the later case you can see the prediction colunm as well, which  task is to predict the quality of the particular wine, if the number is closer to the 0 it's probably a bas quality one, if it's closer to 1 it should be a quality product.
+
+![6_tables](https://github.com/user-attachments/assets/21c39f6e-e94a-4477-b2cb-e04ed383de98)
+
+The seventh cell - Set up model serving for low-latency requests - is splitted into two cells. Their purpose is to deploying the model into a production environment to enable low-latency predictions via an API endpoint.
+
+The first part loads and register the model:
+```python
+model = mlflow.pyfunc.load_model(f"models:/{model_name}/production")
+
+
+with mlflow.start_run() as run:
+    # Log model
+    mlflow.sklearn.log_model(model, "my_model", registered_model_name="MyRegisteredModel")
+```
+the output:
+```python
+Successfully registered model 'MyRegisteredModel'.
+2025/03/22 12:37:16 INFO mlflow.store.model_registry.abstract_store: Waiting up to 300 seconds for model version to finish creation. Model name: MyRegisteredModel, version 1
+Created version '1' of model 'MyRegisteredModel'.
+```
+
+![7_reg_mod](https://github.com/user-attachments/assets/08cfb84b-2581-4662-a6ca-d378cc3927dd)
+
+
 
 
 
