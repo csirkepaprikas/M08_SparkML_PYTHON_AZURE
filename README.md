@@ -965,5 +965,169 @@ The model's storing process to the Model Registry was successful the transition 
 
 ![3_reg](https://github.com/user-attachments/assets/2debd36d-9d50-4a16-ac90-08d689838552)
 
+The fourth cell is the Explore the results of the hyperparameter sweep with MLflow. This time I used the xgboost library to train a more accurate model. Run a hyperparameter sweep to train multiple models in parallel, using Hyperopt and SparkTrials. As before, MLflow tracks the performance of each parameter configuration.
+
+```python
+# MAGIC %md
+# MAGIC ##Experiment with a new model
+# MAGIC
+# MAGIC The random forest model performed well even without hyperparameter tuning.
+# MAGIC
+# MAGIC The script trains a classification model using the XGBoost algorithm. Hyperopt and SparkTrials are used for hyperparameter tuning, enabling parallel search. A total of 96 different configurations (Spark jobs) were executed. The goal was to maximize the AUC score, with fmin() selecting the best hyperparameter combination. The search used the Tree-structured Parzen Estimator (TPE) algorithm (tpe.suggest) to optimize the parameters. The SparkTrials(parallelism=10) setting allowed up to 10 Spark jobs to run in parallel. his sped up the tuning process, though it does not guarantee finding the absolute best configuration. Each trial was automatically logged using MLflow.
+
+# COMMAND ----------
+
+# MAGIC %pip install hyperopt
+# MAGIC %pip install xgboost
+
+# COMMAND ----------
+
+from hyperopt import fmin, tpe, hp, SparkTrials, Trials, STATUS_OK
+from hyperopt.pyll import scope
+from math import exp
+import mlflow.xgboost
+import numpy as np
+import xgboost as xgb
+
+search_space = {
+  'max_depth': scope.int(hp.quniform('max_depth', 4, 100, 1)),
+  'learning_rate': hp.loguniform('learning_rate', -3, 0),
+  'reg_alpha': hp.loguniform('reg_alpha', -5, -1),
+  'reg_lambda': hp.loguniform('reg_lambda', -6, -1),
+  'min_child_weight': hp.loguniform('min_child_weight', -1, 3),
+  'objective': 'binary:logistic',
+  'seed': 123, # Set a seed for deterministic training
+}
+
+def train_model(params):
+  # With MLflow autologging, hyperparameters and the trained model are automatically logged to MLflow.
+  mlflow.xgboost.autolog()
+  with mlflow.start_run(nested=True):
+    train = xgb.DMatrix(data=X_train, label=y_train)
+    validation = xgb.DMatrix(data=X_val, label=y_val)
+    # Pass in the validation set so xgb can track an evaluation metric. XGBoost terminates training when the evaluation metric
+    # is no longer improving.
+    booster = xgb.train(params=params, dtrain=train, num_boost_round=1000,\
+                        evals=[(validation, "validation")], early_stopping_rounds=50)
+    validation_predictions = booster.predict(validation)
+    auc_score = roc_auc_score(y_val, validation_predictions)
+    mlflow.log_metric('auc', auc_score)
+
+    signature = infer_signature(X_train, booster.predict(train))
+    mlflow.xgboost.log_model(booster, "model", signature=signature)
+    
+    # Set the loss to -1*auc_score so fmin maximizes the auc_score
+    return {'status': STATUS_OK, 'loss': -1*auc_score, 'booster': booster.attributes()}
+
+# Greater parallelism will lead to speedups, but a less optimal hyperparameter sweep. 
+# A reasonable value for parallelism is the square root of max_evals.
+spark_trials = SparkTrials(parallelism=10)
+
+# Run fmin within an MLflow run context so that each hyperparameter configuration is logged as a child run of a parent
+# run called "xgboost_models" .
+with mlflow.start_run(run_name='xgboost_models'):
+  best_params = fmin(
+    fn=train_model, 
+    space=search_space, 
+    algo=tpe.suggest, 
+    max_evals=96,
+    trials=spark_trials,
+  )
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC #### Use MLflow to view the results
+# MAGIC Open up the Experiment Runs sidebar to see the MLflow runs. Click on Date next to the down arrow to display a menu, and select 'auc' to display the runs sorted by the auc metric. The highest auc value is 0.90.
+# MAGIC
+# MAGIC MLflow tracks the parameters and performance metrics of each run. Click the External Link icon <img src="https://docs.databricks.com/_static/images/icons/external-link.png"/> at the top of the Experiment Runs sidebar to navigate to the MLflow Runs Table. 
+# MAGIC
+# MAGIC For details about how to use the MLflow runs table to understand how the effect of individual hyperparameters on run metrics, see the  documentation ([AWS](https://docs.databricks.com/mlflow/runs.html#compare-runs) | [Azure](https://docs.microsoft.com/azure/databricks//mlflow/runs#--compare-runs) | [GCP](https://docs.gcp.databricks.com/mlflow/runs.html#compare-runs)). 
+```
+GUI output:
+```python
+100%|██████████| 96/96 [04:37<00:00,  2.89s/trial, best loss: -0.8979887932759655]
+INFO:hyperopt-spark:Total Trials: 96: 96 succeeded, 0 failed, 0 cancelled.
+```
+Spark jobs and GUI during the cell running:
+
+![4_spark_ui](https://github.com/user-attachments/assets/f0fb7fc4-13a7-4f31-8fe3-193a6c39d0fa)
+
+Screenshot about the succeeded jobs:
+
+![4_succ_end](https://github.com/user-attachments/assets/c1894dc5-5b38-4775-a99e-aaa4dba8c07b)
+
+And a snapshot about the model runs in the :
+
+![4_runs](https://github.com/user-attachments/assets/6136f3c4-b0bf-4c0a-bd28-48f85d5083bf)
+
+The script trained 96 different XGBoost models using Spark while performing hyperparameter tuning. The best model achieved an AUC score of 0.89799, indicating strong performance. All runs were automatically tracked in MLflow, and no failures or cancellations occurred.
+
+These are the best according their AUC's:
+
+![4_best_aucs](https://github.com/user-attachments/assets/fc5d88ad-c722-4d7e-bff2-ff2b89407512)
+
+THen I headed to the fifth cell, which is the Register the best performing model in MLflow. I saved earlier the baseline model to Model Registry with the name `wine_quality`. Now I updated `wine_quality` to a more accurate model from the hyperparameter sweep.
+Because I used MLflow to log the model produced by each hyperparameter configuration, I can use MLflow to identify the best performing run and save the model from that run to the Model Registry.
+Here is the related code:
+```python
+best_run = mlflow.search_runs(order_by=['metrics.auc DESC']).iloc[0]
+print(f'AUC of Best Run: {best_run["metrics.auc"]}')
+
+# COMMAND ----------
+
+new_model_version = mlflow.register_model(f"runs:/{best_run.run_id}/model", model_name)
+
+# Registering the model takes a few seconds, so add a small delay
+time.sleep(15)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Click **Models** in the left sidebar to see that the `wine_quality` model now has two versions. 
+# MAGIC
+# MAGIC Promote the new version to production.
+
+# COMMAND ----------
+
+# Archive the old model version
+client.transition_model_version_stage(
+  name=model_name,
+  version=model_version.version,
+  stage="Archived"
+)
+
+# Promote the new model version to Production
+client.transition_model_version_stage(
+  name=model_name,
+  version=new_model_version.version,
+  stage="Production"
+)
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Clients that call load_model now receive the new model.
+
+# COMMAND ----------
+
+# This code is the same as the last block of "Building a Baseline Model". No change is required for clients to get the new model!
+model = mlflow.pyfunc.load_model(f"models:/{model_name}/production")
+print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC The new version achieved a better score on the test set.
+```
+
+
+
+
+
+
+
+
+
 
 
