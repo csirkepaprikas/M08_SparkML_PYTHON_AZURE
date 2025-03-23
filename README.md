@@ -1227,9 +1227,85 @@ Created version '1' of model 'MyRegisteredModel'.
 
 ![7_reg_mod](https://github.com/user-attachments/assets/08cfb84b-2581-4662-a6ca-d378cc3927dd)
 
+After registering the model, I set up its serving endpoint through the Databricks interface:
 
+![8_ep](https://github.com/user-attachments/assets/a04904ee-bd4a-4a1b-9339-526836f52d08)
 
+I also created a secret-scope and uploaded there the Databricks API token, which was created prior:
+```python
+c:\data_eng\házi\3\terraform>databricks secrets create-scope --scope my-secret-scope
 
+c:\data_eng\házi\3\terraform>databricks secrets list-scopes
+Scope            Backend     KeyVault URL
+---------------  ----------  --------------
+my-secret-scope  DATABRICKS  N/A
+
+c:\data_eng\házi\3\terraform>databricks secrets put --scope my-secret-scope --key DATABRICKS_TOKEN
+
+c:\data_eng\házi\3\terraform>
+```
+
+The second part requests the API token, configure the endpoint URL, converts the parameters to json format, sends the datas to an ML model and requests the predictions. Last but not least it compares the local and the on-the-fly created datas.
+```python
+token = dbutils.secrets.get(scope="my-secret-scope", key="DATABRICKS_TOKEN")
+import os
+os.environ["DATABRICKS_TOKEN"] = token
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC Go to Serving tab and find created your endpoint. Copy URL
+
+# COMMAND ----------
+
+import os
+import requests
+import numpy as np
+import pandas as pd
+import json
+
+def create_tf_serving_json(data):
+    return {'inputs': {name: data[name].tolist() for name in data.keys()} if isinstance(data, dict) else data.tolist()}
+
+def score_model(dataset):
+    url = 'https://adb-1458450991161077.17.azuredatabricks.net/serving-endpoints/ML_ep/invocations'
+    headers = {'Authorization': f'Bearer {os.environ.get("DATABRICKS_TOKEN")}', 'Content-Type': 'application/json'}
+    ds_dict = {'dataframe_split': dataset.to_dict(orient='split')} if isinstance(dataset, pd.DataFrame) else create_tf_serving_json(dataset)
+    data_json = json.dumps(ds_dict, allow_nan=True)
+    response = requests.request(method='POST', headers=headers, url=url, data=data_json)
+    if response.status_code != 200:
+        raise Exception(f'Request failed with status {response.status_code}, {response.text}')
+    return response.json()
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC The model predictions from the endpoint should agree with the results from locally evaluating the model.
+
+# COMMAND ----------
+
+# Model serving is designed for low-latency predictions on smaller batches of data
+num_predictions = 5
+served_predictions = score_model(X_test[:num_predictions])
+model_evaluations = model.predict(X_test[:num_predictions])
+
+# Compare the results from the deployed model and the trained model
+pd.DataFrame({
+  "Model Prediction": model_evaluations,
+  "Served Model Prediction": np.array(served_predictions['predictions'], dtype=np.float32),
+})
+```
+
+The output shows, the live predictions are also as reliable as those, which were computed locally:
+
+```python
+	Model Prediction	Served Model Prediction
+0	0.000761	0.000140
+1	0.008630	0.005238
+2	0.027949	0.008637
+3	0.080788	0.043080
+4	0.047794	0.029655
+```
 
 
 
