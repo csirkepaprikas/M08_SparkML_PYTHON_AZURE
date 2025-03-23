@@ -1306,6 +1306,309 @@ The output shows, the live predictions are also as reliable as those, which were
 3	0.080788	0.043080
 4	0.047794	0.029655
 ```
+For the CI/CD task I applied terraform method, first I created the tfstate container:
+
+![cicd_cont](https://github.com/user-attachments/assets/e5449d60-2e45-4eaa-b417-4bd99d7d7bb3)
+
+Then modified the terraform and Makefile files.
+first the main.tf (deleted the sensitive informations):
+
+```python
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = ">= 4.0.0"
+    }
+    databricks = {
+      source  = "databricks/databricks"
+      version = ">= 1.0.0"
+    }
+  }
+
+  backend "azurerm" {
+    resource_group_name  = "rg-m"
+    storage_account_name = "dem"
+    container_name       = "tfstate"
+    key                  = "terraform.tfstate"
+  }
+}
+
+provider "azurerm" {
+  features {}
+
+  subscription_id = var.AZURE_SUBSCRIPTION_ID
+  tenant_id       = var.AZURE_TENANT_ID
+  client_id       = var.AZURE_CLIENT_ID
+  client_secret   = var.AZURE_CLIENT_SECRET
+}
+
+provider "databricks" {
+  host  = var.DATABRICKS_HOST
+  token = var.DATABRICKS_TOKEN
+}
+
+
+data "databricks_spark_version" "latest_lts" {
+  long_term_support = true
+}
+
+resource "databricks_cluster" "cicd1" {
+  cluster_name           = "Azure_Spark_ML"
+  spark_version          = data.databricks_spark_version.latest_lts.id 
+  node_type_id           = "Standard_DS3_v2"
+  autotermination_minutes = 30
+
+  spark_conf = {
+    "spark.databricks.cluster.profile" = "singleNode"
+    "spark.master"                     = "local[*]"
+  }
+
+  custom_tags = {
+    "ResourceClass" = "SingleNode"
+  }
+}
+
+resource "azurerm_storage_account" "Azure_Spark_ML_storage" {
+  name                     = var.STORAGE_ACCOUNT_NAME
+  resource_group_name       = var.RESOURCE_GROUP_NAME
+  location                 = "West Europe"
+  account_tier             = "Standard"
+  account_replication_type = "LRS"
+}
+
+resource "azurerm_storage_container" "data" {
+  name                  = "data"
+  storage_account_name  = azurerm_storage_account.Azure_Spark_ML_storage.name
+  container_access_type = "container"
+}
+
+
+resource "databricks_notebook" "cicd_ml" {
+  path     = "/Users/bl.com/cicd_ml"
+  source   = "${path.module}/1by1_ML_1_cop.dbc"
+}
+
+
+resource "databricks_job" "cicd_ml" {
+  name = "cicd_ml"
+
+  task {
+    task_key = "cicd_ml"
+    
+    notebook_task {
+      notebook_path = databricks_notebook.cicd_ml.path
+    }
+
+    existing_cluster_id = databricks_cluster.cicd1.id
+  }
+}
+
+
+
+output "job_ids" {
+  value = {
+    cicd_ml = databricks_job.cicd_ml.id
+
+  }
+}
+
+```
+Then the variables.tf file:
+```python
+variable "AZURE_SUBSCRIPTION_ID" {}
+variable "AZURE_TENANT_ID" {}
+variable "AZURE_CLIENT_ID" {}
+variable "AZURE_CLIENT_SECRET" {}
+variable "DATABRICKS_HOST" {}
+variable "DATABRICKS_TOKEN" {}
+
+variable "STORAGE_ACCOUNT_NAME" {}
+variable "RESOURCE_GROUP_NAME" {}
+```
+Also the terraform.tfvars file, where the secrets are stored.
+
+I executed first the terraform init command and got this output:
+```python
+c:\data_eng\házi\3>terraform init
+Initializing the backend...
+
+Successfully configured the backend "azurerm"! Terraform will automatically
+use this backend unless the backend configuration changes.
+Initializing provider plugins...
+- Finding hashicorp/azurerm versions matching ">= 4.0.0"...
+- Finding databricks/databricks versions matching ">= 1.0.0"...
+- Installing hashicorp/azurerm v4.24.0...
+- Installed hashicorp/azurerm v4.24.0 (signed by HashiCorp)
+- Installing databricks/databricks v1.70.0...
+- Installed databricks/databricks v1.70.0 (self-signed, key ID 9)
+Partner and community providers are signed by their developers.
+If you'd like to know more about provider signing, you can read about it here:
+https://www.terraform.io/docs/cli/plugins/signing.html
+Terraform has created a lock file .terraform.lock.hcl to record the provider
+selections it made above. Include this file in your version control repository
+so that Terraform can guarantee to make the same selections by default when
+you run "terraform init" in the future.
+
+Terraform has been successfully initialized!
+
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+```
+Then the terraform plan:
+
+```python
+c:\data_eng\házi\3>terraform plan
+data.databricks_spark_version.latest_lts: Reading...
+databricks_notebook.cicd_ml: Refreshing state... [id=/Users/ba.com/cicd_ml]
+data.databricks_spark_version.latest_lts: Read complete after 0s [id=15.4.x-scala2.12]
+databricks_cluster.cicd1: Refreshing state... [id=03q]
+databricks_job.cicd_ml: Refreshing state... [id=880]
+azurerm_storage_account.Azure_Spark_ML_storage: Refreshing state... [id=/subscript/resourceGroups/rsm/providers/Microsoft.Storage/storageAccounts/devwesteuropesm]
+azurerm_storage_container.data: Refreshing state... [id=https://d.blob.core.windows.net/data]
+
+Terraform used the selected providers to generate the following execution plan. Resource actions are indicated with the following symbols:
+  ~ update in-place
+
+Terraform will perform the following actions:
+
+  # databricks_notebook.cicd_ml will be updated in-place
+  ~ resource "databricks_notebook" "cicd_ml" {
+        id             = "/Users/ba.com/cicd_ml"
+      ~ md5            = "80a5544" -> "different"
+      ~ source         = "./cicd.dbc" -> "./1by1_ML_1_cop.dbc"
+        # (7 unchanged attributes hidden)
+    }
+
+Plan: 0 to add, 1 to change, 0 to destroy.
+╷
+│ Warning: Argument is deprecated
+│
+│   with azurerm_storage_container.data,
+│   on main.tf line 66, in resource "azurerm_storage_container" "data":
+│   66:   storage_account_name  = azurerm_storage_account.Azure_Spark_ML_storage.name
+│
+│ the `storage_account_name` property has been deprecated in favour of `storage_account_id` and will be removed in version 5.0 of the Provider.
+╵
+
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Note: You didn't use the -out option to save this plan, so Terraform can't guarantee to take exactly these actions if you run "terraform apply" now.
+
+```
+
+And finally the terraform apply command and then started the job manually:
+
+
+```python
+c:\data_eng\házi\3>terraform apply
+data.databricks_spark_version.latest_lts: Reading...
+databricks_notebook.cicd_ml: Refreshing state... [id=/Users/bom/cicd_ml]
+data.databricks_spark_version.latest_lts: Read complete after 1s [id=15.4.x-scala2.12]
+databricks_cluster.cicd1: Refreshing state... [id=03q]
+databricks_job.cicd_ml: Refreshing state... [id=8880]
+azurerm_storage_account.Azure_Spark_ML_storage: Refreshing state... [id=/subscriptions/69d1cd1/resourceGroups/rsm/providers/Microsoft.Storage/storageAccounts/devwesteuropesm]
+azurerm_storage_container.data: Refreshing state... [id=https://d.blob.core.windows.net/data]
+
+Terraform used the selected providers to generate the following execution plan. Resource actions are indicated with the following symbols:
+  ~ update in-place
+
+Terraform will perform the following actions:
+
+  # databricks_notebook.cicd_ml will be updated in-place
+  ~ resource "databricks_notebook" "cicd_ml" {
+        id             = "/Users/ba.com/cicd_ml"
+      ~ md5            = "80a4" -> "different"
+      ~ source         = "./cicd.dbc" -> "./1by1_ML_1_cop.dbc"
+        # (7 unchanged attributes hidden)
+    }
+
+Plan: 0 to add, 1 to change, 0 to destroy.
+╷
+│ Warning: Argument is deprecated
+│
+│   with azurerm_storage_container.data,
+│   on main.tf line 66, in resource "azurerm_storage_container" "data":
+│   66:   storage_account_name  = azurerm_storage_account.Azure_Spark_ML_storage.name
+│
+│ the `storage_account_name` property has been deprecated in favour of `storage_account_id` and will be removed in version 5.0 of the Provider.
+╵
+
+Do you want to perform these actions?
+  Terraform will perform the actions described above.
+  Only 'yes' will be accepted to approve.
+
+  Enter a value: yes
+
+databricks_notebook.cicd_ml: Modifying... [id=/Users/balm/cicd_ml]
+databricks_notebook.cicd_ml: Modifications complete after 2s [id=/Users/baom/cicd_ml]
+
+Apply complete! Resources: 0 added, 1 changed, 0 destroyed.
+
+Outputs:
+
+job_ids = {
+  "cicd_ml" = "880888874189180"
+}
+
+c:\data_eng\házi\3>databricks jobs run-now --job-id 880888874189180
+WARN: Your CLI is configured to use Jobs API 2.0. In order to use the latest Jobs features please upgrade to 2.1: 'databricks jobs configure --version=2.1'. Future versions of this CLI will default to the new Jobs API. Learn more at https://docs.databricks.com/dev-tools/cli/jobs-cli.html
+{
+  "run_id": 936887152179528,
+  "number_in_job": 936887152179528
+}
+
+c:\data_eng\házi\3>
+```
+
+Here you can see the created cluster:
+
+![ci_clust](https://github.com/user-attachments/assets/5815f972-b722-4471-9f18-2718b18da3d9)
+
+And the created job:
+
+![ci_job](https://github.com/user-attachments/assets/6fe2645f-3003-4726-a988-94edf49e6c2c)
+
+Here is the outcome of the Seaborn cell:
+
+![ci_1](https://github.com/user-attachments/assets/b22fbede-f4f3-41a9-9a3c-6f938f34d88a)
+
+The result of the matplotlib cell:
+
+![ci_2](https://github.com/user-attachments/assets/71a51fb2-2352-4d9a-b238-03d87807a731)
+
+The outcome of the Parallel hyperparameter cell:
+
+![ci_3](https://github.com/user-attachments/assets/6348375d-8836-4a70-8529-a99c147caa2d)
+
+
+The result of the hyperparameter sweep cell:
+
+![ci_4](https://github.com/user-attachments/assets/609db3cb-8651-42be-bffa-7bc7e33f26b4)
+
+The outcome of the Register the best model cell:
+
+![ci_5](https://github.com/user-attachments/assets/324103bd-b8c6-46b8-a69e-d7365f3ff963)
+
+The result of the apply the registered cell:
+
+![ci_6](https://github.com/user-attachments/assets/eaa05cab-3a58-42f1-b67e-12203132caaf)
+
+And the outcome of the Setup serving model cell:
+
+![ci_7](https://github.com/user-attachments/assets/5b63d54a-469e-4a92-8dba-c4adaf2c1dd0)
+
+Here you can see the details of the successful job run:
+
+![ci_job_suc](https://github.com/user-attachments/assets/54f4e61f-a3e0-4547-86d8-f4a00cfcf70a)
+
+
+
 
 
 
