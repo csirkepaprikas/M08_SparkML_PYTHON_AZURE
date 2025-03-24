@@ -1310,7 +1310,7 @@ For the CI/CD task I applied terraform method, first I created the tfstate conta
 
 ![cicd_cont](https://github.com/user-attachments/assets/e5449d60-2e45-4eaa-b417-4bd99d7d7bb3)
 
-Then modified the terraform and Makefile files.
+Then modified the terraform files.
 first the main.tf (deleted the sensitive informations):
 
 ```python
